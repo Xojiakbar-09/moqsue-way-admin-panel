@@ -5,14 +5,29 @@ import '../../bloc/hadith_bloc.dart';
 import '../../repository/hadith_repository.dart';
 import 'hadith_dialogs.dart';
 
-/// Hadislar ro'yxatini (sarlavha, yuklanish va bo'sh holatlar bilan) ko'rsatadi.
-class HadithList extends StatelessWidget {
+/// Hadislar ro'yxatini va manba filtrini ko'rsatadi.
+class HadithList extends StatefulWidget {
   const HadithList({super.key, required this.state});
 
   final HadithState state;
 
   @override
+  State<HadithList> createState() => _HadithListState();
+}
+
+class _HadithListState extends State<HadithList> {
+  static final _hadithNumberSuffix = RegExp(
+    r'[\s,;:.–—#№(-]+(?:(?:hadis|hadith)(?:\s+raqami)?[\s:]+)?[#№]?\s*'
+    r'\d+[a-z]?(?:\s*[-–—/:]\s*\d+[a-z]?)*'
+    r'(?:\s*[-–—.]?\s*(?:hadis|hadith))?\s*\)?$',
+    caseSensitive: false,
+  );
+
+  String? _selectedSource;
+
+  @override
   Widget build(BuildContext context) {
+    final state = widget.state;
     if (state.loadError) {
       return const Center(
         child: Text('Hadislarni yuklab bo‘lmadi. Sahifani yangilang.'),
@@ -23,6 +38,27 @@ class HadithList extends StatelessWidget {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final selectedSource = _selectedSource;
+    final selectedKey = selectedSource?.toLowerCase() ?? '';
+    final sources = <String, String>{
+      if (selectedSource != null) selectedKey: selectedSource,
+    };
+    final visibleDocuments = <HadithDocument>[];
+    for (final document in documents) {
+      final source = document.data()['source'];
+      final label = source is String
+          ? source.trim().replaceFirst(_hadithNumberSuffix, '').trimRight()
+          : '';
+      final key = label.toLowerCase();
+      if (key.isNotEmpty) {
+        sources.putIfAbsent(key, () => label);
+      }
+      if (selectedKey.isEmpty || selectedKey == key) {
+        visibleDocuments.add(document);
+      }
+    }
+    final sourceKeys = sources.keys.toList()..sort();
+
     return Column(
       children: [
         Padding(
@@ -30,24 +66,72 @@ class HadithList extends StatelessWidget {
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              'Hadislar · ${documents.length}',
+              'Hadislar · ${visibleDocuments.length}',
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),
           ),
         ),
+        if (sources.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Manba',
+                    prefixIcon: Icon(Icons.filter_list),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: selectedKey,
+                      isDense: true,
+                      isExpanded: true,
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: '',
+                          child: Text('Barcha manbalar'),
+                        ),
+                        for (final key in sourceKeys)
+                          DropdownMenuItem<String>(
+                            value: key,
+                            child: Text(
+                              sources[key]!,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (key) =>
+                          setState(() => _selectedSource = sources[key]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (state.saving) const LinearProgressIndicator(),
-        if (documents.isEmpty)
-          const Expanded(child: Center(child: Text('Hozircha hadislar yo‘q.')))
+        if (visibleDocuments.isEmpty)
+          Expanded(
+            child: Center(
+              child: Text(
+                selectedKey.isEmpty
+                    ? 'Hozircha hadislar yo‘q.'
+                    : 'Bu manbadan hadis topilmadi.',
+              ),
+            ),
+          )
         else
           Expanded(
             child: ListView.separated(
+              key: ValueKey(selectedKey),
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
-              itemCount: documents.length,
+              itemCount: visibleDocuments.length,
               separatorBuilder: (_, index) => const SizedBox(height: 8),
               itemBuilder: (context, index) => HadithTile(
-                document: documents[index],
+                document: visibleDocuments[index],
                 enabled: !state.saving,
               ),
             ),
